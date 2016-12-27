@@ -24,6 +24,11 @@ Upstart and tshark for Debian/Ubuntu installation described bellow:
  5. Now run simple data summery by navigating
     `http://<server-id>/netmon`
 
+Preview:
+
+![enter image description here](previews/1.png)
+
+
 For monitoring traffic I enabled ip4_forwarding and use the pi as internet access point:
 
 [MyComputer] <======> (Orange PI) <======> [Internet Router]
