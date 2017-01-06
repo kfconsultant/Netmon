@@ -3,15 +3,29 @@
 require_once (__DIR__ . "/lib/class.db.php");
 require_once (__DIR__ . "/lib/Helpers.php");
 //tcpdump -B 8192 -s 100 -nn -N  -t -l -i wlan0 tcp or udp and not port 22
-
 //turn off precus mode
 //exec("ifconfig wlan1 promisc");
+$cmd = "tcpdump ";
+$cmd.=" -e"; //add mac capture
+$cmd.=" -q"; //less output data
+$cmd.=" -B 8192 -s 100"; //limit capture buffer
+$cmd.=" -nn"; //dont resolve domains
+$cmd.=" -N"; //
+$cmd.=" -t"; //
+$cmd.=" -l"; //buffered out put for fast echo to pipe
+$cmd.=" -i wlan1"; //caputer interface
+$cmd.=" '(tcp or udp)"//omit icmp ping packets because of dualpacket stucture
+        . " and not (src net (10 or 172.16/12 or 192.168/16) and dst net (10 or 172.16/12 or 192.168/16))'"; //ommit local traffic
 
-$cmd ="tshark -l -s 100 -T fields -E separator=,"; //init
-$cmd.=" -b -b files:10 filesize:2 -w /tmp/probe-req.tmp"; //file buffer size limitation
-$cmd.=" -i wlan1"; //interfaces
-//$cmd.=" -i wlan0";
-$cmd.=" -e eth.src -e eth.dst -e ip.src -e ip.dst -e frame.len"; //capture fields
+
+/* //for tshark
+  $cmd = "tshark -l -s 100 -T fields -E separator=,"; //init
+  $cmd.=" -b -b files:10 filesize:2 -w /tmp/probe-req.tmp"; //file buffer size limitation
+  $cmd.=" -i wlan1"; //interfaces
+  //$cmd.=" -i wlan0";
+  $cmd.=" -e eth.src -e eth.dst -e ip.src -e ip.dst -e frame.len"; //capture fields
+ */
+
 //$cmd.=" -Y 'eth.dst==3c:47:11:03:76:42'";
 //echo $cmd.PHP_EOL;die;
 //
@@ -40,18 +54,28 @@ $process = proc_open($cmd, $descriptorspec, $pipes, realpath('./'), array());
 //stream_set_blocking($pipes[2], 0);
 if (is_resource($process)) {
     while ($rowdata = fgets($pipes[1])) {
-        if (preg_match('/^(?<src_mac>[\:\da-z]+),(?<dst_mac>[\:\da-z]+),(?<src_ip>[\.\d]+),(?<dst_ip>[\.\d]+),(?<size>\d+)\n$/', $rowdata, $matches)) {
-            echo time()."\t".$rowdata;
-        } elseif (!preg_match('/(?<src_mac>[\:\da-z]+),(?<dst_mac>[\:\da-z]+),(?<src_ip>[\.\d]+),(?<dst_ip>[\.\d]+),([\.\d]+),([\.\d]+),(?<size>\d+)[\n\r]+$/', $rowdata, $matches)) {
+        /* //for tshark
+          if (preg_match('/^(?<src_mac>[\:\da-z]+),(?<dst_mac>[\:\da-z]+),(?<src_ip>[\.\d]+),(?<dst_ip>[\.\d]+),(?<size>\d+)\n$/', $rowdata, $matches)) {
+          echo time() . "\t" . $rowdata;
+          } elseif (!preg_match('/(?<src_mac>[\:\da-z]+),(?<dst_mac>[\:\da-z]+),(?<src_ip>[\.\d]+),(?<dst_ip>[\.\d]+),([\.\d]+),([\.\d]+),(?<size>\d+)[\n\r]+$/', $rowdata, $matches)) {
+          fwrite(STDERR, "packet data parse failed : $rowdata\n");
+          continue;
+          }
+         */
+
+        if (preg_match('/(?<src_mac>[\d+\:a-z]+) > (?<dst_mac>[\d+\:a-z]+), IPv\d, length (?<size>\d+): (?<src_ip>\d+\.\d+\.\d+\.\d+)\.(?<src_port>\d+) > (?<dst_ip>\d+\.\d+\.\d+\.\d+)\.(?<dst_port>\d+):/i', $rowdata, $matches)) {
+            echo time() . "\t" . $rowdata;
+        } else {
             fwrite(STDERR, "packet data parse failed : $rowdata\n");
             continue;
         }
-        if(!isset($matches['size'])){
+
+        if (!isset($matches['size'])) {
             fwrite(STDERR, "Parse error in $rowdata\n");
             continue;
         }
-        
-        if($matches['size']==0){
+
+        if ($matches['size'] == 0) {
             continue;
         }
 //        $filter=['src_mac','dst_mac','src_ip','dst_ip','size'];
@@ -79,21 +103,21 @@ if (is_resource($process)) {
             $matches['mac'] = $matches['src_mac'];
         }
 
-        
+
         $filter = ['mac', 'src_ip', 'dst_ip', 'size'];
         //filter matches to table fields
         $conData = array_intersect_key($matches, array_flip($filter));
         $conData['date'] = date("Y-m-d");
 
         $buffer[] = $conData;
-        if ($buffer >= 1000) 
-        {
-            foreach ($buffer as $conData) 
+        if (count($buffer) >= 1000) 
             {
-                if (!$db->insert('connections', $conData, true, "UPDATE size=size+VALUES(size)" /* add up trafic for ever mac related to unique key index */)) {
-                    fwrite(STDERR, "Insert Fail \n------------------------------\n");
-                }
-            }
+            $db->insertMulti('connections', $buffer, false, "UPDATE size=size+VALUES(size)");
+//            foreach ($buffer as $conData) {
+//                if (!$db->insert('connections', $conData, true, "UPDATE size=size+VALUES(size)" /* add up trafic for ever mac related to unique key index */)) {
+//                    fwrite(STDERR, "Insert Fail \n------------------------------\n");
+//                }
+//            }
             $buffer = [];
         }
     }

@@ -72,9 +72,9 @@ class DB {
 
     public function debug() {
         $isCli = (php_sapi_name() === 'cli');
-        if($isCli){
-            $this->errorCallbackFunction='echo';
-            $this->errorMsgFormat='text';
+        if ($isCli) {
+            $this->errorCallbackFunction = 'echo';
+            $this->errorMsgFormat = 'text';
         }
         if (!empty($this->errorCallbackFunction)) {
             $error = array("Error" => $this->error);
@@ -82,11 +82,11 @@ class DB {
                 $error["SQL Statement"] = "$this->sql";
                 $error["Parsed Query"] = $this->getParsedQuery();
             }
-            
+
             if (!empty($this->bind)) {
                 $error["Bind Parameters"] = trim(print_r($this->bind, true));
             }
-            
+
             $backtrace = debug_backtrace();
             if (!empty($backtrace)) {
                 for ($i = count($backtrace) - 1; $i > 0; $i--) {
@@ -109,19 +109,18 @@ class DB {
             }
             elseif ($this->errorMsgFormat == "text") {
                 $msg .= "SQL Error\n" . str_repeat("-", 50);
-                foreach ($error as $key => $val){
+                foreach ($error as $key => $val) {
                     $msg .= "\n\n$key:\n$val";
                 }
-                $msg .=PHP_EOL;    
+                $msg .=PHP_EOL;
             }
 
             $func = $this->errorCallbackFunction;
-            if($isCli){
+            if ($isCli) {
                 fwrite(STDERR, "$msg");
-            }else{
+            } else {
                 $func($msg);
             }
-            
         }
     }
 
@@ -204,6 +203,51 @@ class DB {
         foreach ($fields as $field)
             $bind[":$field"] = $info[$field];
         return $this->query($sql, $bind);
+    }
+
+    public function insertMulti($table, $infos, $ignore = false, $onDublicate = Null) {
+        $this->table_name = $table;
+
+        $fields = array_keys($infos[0]);
+
+        // $fields =array_keys($info);
+        $sql = "INSERT " . ($ignore ? ' IGNORE ' : '') . "INTO " . $table . " (" . implode($fields, ", ") . ") ";
+        $bind = array();
+        $values=[];
+        foreach ($infos as $index => $info) {
+            $rowFiels = [];
+            foreach ($info as $field => $value) {
+                $bname = ":$field$index";
+                $rowFiels[] = $bname;
+                $bind[$bname] = $value;
+            }
+
+            $values[]= "(" . implode(',',$rowFiels) . ")";
+        }
+        $sql.=" VALUES ".implode(',',$values);
+        if ($onDublicate) {
+            $sql.=" ON DUPLICATE KEY $onDublicate";
+        }
+//        var_dump($bind);
+//        die();
+
+        return $this->query($sql, $bind);
+    }
+
+    public function virtualInsert($table, $info, $ignore = false, $onDublicate = Null) {
+        $this->table_name = $table;
+
+        $fields = $this->filter($table, $info);
+
+        // $fields =array_keys($info);
+        $sql = "INSERT " . ($ignore ? ' IGNORE ' : '') . "INTO " . $table . " (" . implode($fields, ", ") . ") VALUES (:" . implode($fields, ", :") . ")";
+        if ($onDublicate) {
+            $sql.=" ON DUPLICATE KEY $onDublicate";
+        }
+        $bind = array();
+        foreach ($fields as $field)
+            $bind[":$field"] = $info[$field];
+        return $this->getParsedQuery($sql, $bind);
     }
 
     public function query($sql, $bind = "") {
@@ -412,16 +456,22 @@ class DB {
         return $this->sql;
     }
 
-    public function getParsedQuery() {
-        $sql = $this->sql;
+    public function getParsedQuery($sql = NULL, $bind = NULL) {
+        if (!$sql) {
+            $sql = $this->sql;
+        }
 
-        foreach ($this->bind as $key => $value) {
+        if (!$bind) {
+            $bind = $this->bind;
+        }
+
+        foreach ($bind as $key => $value) {
             if (is_string($key)) {
                 if (!preg_match('/^\:\w+$/', $key)) {
                     $key = ":$key";
                 }
 
-                $sql = preg_replace("/([^\w]){$key}([^\w$])/", "\\1".(is_null($value)?"NULL":"'$value'")."\\2", $sql, 1);
+                $sql = preg_replace("/([^\w]){$key}([^\w$])/", "\\1" . (is_null($value) ? "NULL" : "'$value'") . "\\2", $sql, 1);
             } else {
                 $pos = strpos($sql, "?");
                 $sql = substr_replace($sql, "'$value'", $pos, 1);
