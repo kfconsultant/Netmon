@@ -12,7 +12,7 @@ If you know a good php interface for this application please introduce it.
  1. This project need to `php` , `apache`, `mysql` , `tcpdump` , `upstart` be installed.
 Upstart and tcpdump for Debian/Ubuntu installation described bellow:
 
-        apt install tshark upstart
+        apt install tcpdump upstart
 
 
  2. Now should install service by copying `upstart/netmon.conf` to `/etc/init`.
